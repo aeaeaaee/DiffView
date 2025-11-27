@@ -2,6 +2,14 @@
 npm install -g npm
 npm install react
 npm install --package-lock-only
+# Source - https://stackoverflow.com/a
+# Posted by Anas Tiour, modified by community. See post 'Timeline' for change history
+# Retrieved 2025-11-27, License - CC BY-SA 4.0
+
+npm install -g synp
+npm install --package-lock-only
+synp --source-file package-lock.json
+
 
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { Upload, X, ArrowRightLeft, Image as ImageIcon, Download } from 'lucide-react';
