@@ -1,6 +1,7 @@
 // Created by Gemini 3.0 Pro
 npm install -g npm
 npm install react
+npm install --package-lock-only
 
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { Upload, X, ArrowRightLeft, Image as ImageIcon, Download } from 'lucide-react';
