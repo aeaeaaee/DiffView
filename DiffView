@@ -1,0 +1,444 @@
+// Created by Gemini 3.0 Pro
+
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+import { Upload, X, ArrowRightLeft, Image as ImageIcon, Download } from 'lucide-react';
+
+const App = () => {
+  const [leftImage, setLeftImage] = useState(null);
+  const [rightImage, setRightImage] = useState(null);
+  const [sliderPosition, setSliderPosition] = useState(50);
+  const [isResizing, setIsResizing] = useState(false);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [snapshotPreview, setSnapshotPreview] = useState(null); 
+  
+  const containerRef = useRef(null);
+
+  // Unified File Processing
+  const processFile = (file, side) => {
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (side === 'left') setLeftImage(event.target.result);
+      else setRightImage(event.target.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = (e, side) => {
+    const file = e.target.files[0];
+    processFile(file, side);
+    e.target.value = '';
+  };
+
+  // Dragging Logic
+  const handleMouseDown = () => setIsResizing(true);
+  const handleMouseUp = () => setIsResizing(false);
+  
+  const handleMouseMove = useCallback((e) => {
+    if (!isResizing || !containerRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const percentage = (x / rect.width) * 100;
+    
+    setSliderPosition(percentage);
+  }, [isResizing]);
+
+  const handleTouchMove = useCallback((e) => {
+    if (!isResizing || !containerRef.current) return;
+    
+    const touch = e.touches[0];
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(touch.clientX - rect.left, rect.width));
+    const percentage = (x / rect.width) * 100;
+    
+    setSliderPosition(percentage);
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('touchmove', handleTouchMove);
+      window.addEventListener('touchend', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleMouseUp);
+    };
+  }, [isResizing, handleMouseMove, handleTouchMove]);
+
+  // Geometry Calculation
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+
+    const updateSize = () => {
+      if (containerRef.current) {
+        setContainerSize({
+          width: containerRef.current.offsetWidth,
+          height: containerRef.current.offsetHeight
+        });
+      }
+    };
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(containerRef.current);
+    
+    // Immediate calculation
+    updateSize();
+
+    return () => resizeObserver.disconnect();
+  }, [leftImage, rightImage]);
+
+  const swapImages = () => {
+    const temp = leftImage;
+    setLeftImage(rightImage);
+    setRightImage(temp);
+  };
+
+  const resetImages = () => {
+    setLeftImage(null);
+    setRightImage(null);
+    setSliderPosition(50);
+    setSnapshotPreview(null);
+  };
+
+  // Generate Snapshot for Preview
+  const generateSnapshot = () => {
+    if (!containerRef.current || !leftImage || !rightImage) return;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const width = containerRef.current.offsetWidth;
+    const height = containerRef.current.offsetHeight;
+    
+    canvas.width = width;
+    canvas.height = height;
+
+    const loadImage = (src) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.src = src;
+    });
+
+    Promise.all([loadImage(rightImage), loadImage(leftImage)]).then(([rImg, lImg]) => {
+      drawContain(ctx, rImg, width, height);
+
+      const splitX = (width * sliderPosition) / 100;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, splitX, height);
+      ctx.clip();
+
+      drawContain(ctx, lImg, width, height);
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.moveTo(splitX, 0);
+      ctx.lineTo(splitX, height);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      setSnapshotPreview(canvas.toDataURL('image/png'));
+    });
+  };
+
+  const downloadImage = () => {
+    if (!snapshotPreview) return;
+    const link = document.createElement('a');
+    link.download = `diffview-snapshot-${Date.now()}.png`;
+    link.href = snapshotPreview;
+    link.click();
+    setSnapshotPreview(null);
+  };
+
+  const drawContain = (ctx, img, canvasWidth, canvasHeight) => {
+    const imgRatio = img.width / img.height;
+    const canvasRatio = canvasWidth / canvasHeight;
+    
+    let renderWidth, renderHeight, offsetX, offsetY;
+
+    if (imgRatio > canvasRatio) {
+      renderWidth = canvasWidth;
+      renderHeight = canvasWidth / imgRatio;
+      offsetX = 0;
+      offsetY = (canvasHeight - renderHeight) / 2;
+    } else {
+      renderHeight = canvasHeight;
+      renderWidth = canvasHeight * imgRatio;
+      offsetX = (canvasWidth - renderWidth) / 2;
+      offsetY = 0;
+    }
+    ctx.drawImage(img, offsetX, offsetY, renderWidth, renderHeight);
+  };
+
+  const preventDragHandler = (e) => e.preventDefault();
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col relative">
+      
+      {/* Modal Overlay for Snapshot Preview */}
+      {snapshotPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl max-w-4xl w-full flex flex-col overflow-hidden max-h-[90vh]">
+            <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <ImageIcon size={20} className="text-blue-400"/> Snapshot Preview
+              </h3>
+              <button onClick={() => setSnapshotPreview(null)} className="text-slate-400 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-950/30">
+              <img 
+                src={snapshotPreview} 
+                alt="Snapshot Preview" 
+                className="max-w-full h-auto rounded-lg shadow-lg border border-slate-700" 
+              />
+            </div>
+
+            <div className="p-4 border-t border-slate-700 bg-slate-800 flex justify-end gap-3">
+              <button 
+                onClick={() => setSnapshotPreview(null)}
+                className="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={downloadImage}
+                className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-lg shadow-blue-900/20 flex items-center gap-2"
+              >
+                <Download size={18} /> Download Image
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="bg-slate-800 border-b border-slate-700 p-4 shadow-md z-10">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <ImageIcon size={20} className="text-white" />
+            </div>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+              DiffView
+            </h1>
+          </div>
+          <div className="text-sm text-slate-400 hidden sm:block">
+            Side-by-side Image Diff Tool
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col items-center justify-center p-4 md:p-8 overflow-hidden w-full">
+        
+        {!leftImage || !rightImage ? (
+          <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+            <UploadCard 
+              side="Left / Before" 
+              image={leftImage} 
+              onFileSelect={(e) => handleFileUpload(e, 'left')} 
+              onFileDrop={(file) => processFile(file, 'left')}
+              onClear={() => setLeftImage(null)}
+            />
+            <UploadCard 
+              side="Right / After" 
+              image={rightImage} 
+              onFileSelect={(e) => handleFileUpload(e, 'right')} 
+              onFileDrop={(file) => processFile(file, 'right')}
+              onClear={() => setRightImage(null)}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center w-full h-full max-w-6xl gap-6 animate-fade-in">
+            
+            {/* Toolbar */}
+            <div className="flex flex-wrap gap-3 bg-slate-800 p-2 rounded-xl border border-slate-700 shadow-lg">
+              <button onClick={swapImages} className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors">
+                <ArrowRightLeft size={16} /> Swap Sides
+              </button>
+              <button onClick={() => setSliderPosition(50)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors">
+                Center
+              </button>
+              <button onClick={generateSnapshot} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-blue-900/20 text-white">
+                <Download size={16} /> Save Result
+              </button>
+              <button onClick={resetImages} className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg text-sm font-medium transition-colors border border-red-500/20">
+                <X size={16} /> Reset
+              </button>
+            </div>
+
+            {/* Comparison Stage */}
+            <div 
+              className="relative w-full flex-1 min-h-[400px] md:min-h-[600px] bg-slate-950/50 rounded-xl border border-slate-700 overflow-hidden shadow-2xl select-none"
+              ref={containerRef}
+              onMouseDown={handleMouseDown}
+              onTouchStart={handleMouseDown}
+            >
+              <div className="absolute inset-0 z-0 opacity-20" 
+                style={{
+                  backgroundImage: `linear-gradient(45deg, #334155 25%, transparent 25%), linear-gradient(-45deg, #334155 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #334155 75%), linear-gradient(-45deg, transparent 75%, #334155 75%)`,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                }} 
+              />
+
+              {/* Labels (Static Corners) */}
+              <div className="absolute top-4 left-4 z-30 bg-black/50 text-white text-xs px-2 py-1 rounded backdrop-blur-sm pointer-events-none">
+                Before / Left
+              </div>
+              <div className="absolute top-4 right-4 z-30 bg-black/50 text-white text-xs px-2 py-1 rounded backdrop-blur-sm pointer-events-none">
+                After / Right
+              </div>
+
+              {/* Image Container: Absolute inset-0 is CRITICAL here to prevent height collapse */}
+              <div className="absolute inset-0 z-10 flex items-center justify-center">
+                
+                {/* Right Image (Background) */}
+                <img 
+                  src={rightImage} 
+                  alt="Right" 
+                  className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+                  onDragStart={preventDragHandler}
+                />
+
+                {/* Left Image (Clipped overlay) */}
+                <div 
+                  className="absolute top-0 left-0 h-full overflow-hidden"
+                  style={{ width: `${sliderPosition}%` }}
+                >
+                  <div className="w-full h-full relative">
+                     <img 
+                      src={leftImage} 
+                      alt="Left" 
+                      className="absolute top-0 left-0 h-full max-w-none select-none pointer-events-none"
+                      style={{ 
+                        width: containerSize.width > 0 ? containerSize.width : '100vw',
+                        objectFit: 'contain', 
+                        objectPosition: 'center'
+                      }}
+                      onDragStart={preventDragHandler}
+                    />
+                  </div>
+                </div>
+
+                {/* Slider Handle */}
+                <div 
+                  className="absolute top-0 bottom-0 w-1 bg-white cursor-ew-resize hover:shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-shadow z-20 group"
+                  style={{ left: `${sliderPosition}%` }}
+                >
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center transform transition-transform group-hover:scale-110">
+                    <ArrowRightLeft size={14} className="text-slate-900" />
+                  </div>
+                </div>
+
+              </div>
+            </div>
+            
+            <p className="text-slate-500 text-sm">
+              Drag the slider to compare. Use 'Save Result' to preview and download.
+            </p>
+          </div>
+        )}
+
+      </main>
+
+      <footer className="p-4 text-center text-slate-500 text-xs border-t border-slate-800">
+        &copy; {new Date().getFullYear()} DiffView. All processing happens in your browser.
+      </footer>
+    </div>
+  );
+};
+
+const UploadCard = ({ side, image, onFileSelect, onFileDrop, onClear }) => {
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      onFileDrop(e.dataTransfer.files[0]);
+    }
+  };
+
+  return (
+    <div className={`bg-slate-800 rounded-xl border p-6 flex flex-col items-center justify-center text-center shadow-lg transition-all relative overflow-hidden group 
+      ${isDragging ? 'border-blue-500 bg-slate-700/50' : 'border-slate-700 hover:border-slate-600'}`}>
+      
+      {image ? (
+        <>
+          <div className="relative w-full h-64 rounded-lg overflow-hidden bg-slate-900 mb-4 border border-slate-700">
+             <div className="absolute inset-0 opacity-20" 
+                style={{
+                  backgroundImage: `linear-gradient(45deg, #334155 25%, transparent 25%), linear-gradient(-45deg, #334155 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #334155 75%), linear-gradient(-45deg, transparent 75%, #334155 75%)`,
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                }} 
+              />
+            <img src={image} alt="Preview" className="w-full h-full object-contain relative z-10" />
+            <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded backdrop-blur-md z-20">
+              {side}
+            </div>
+          </div>
+          <button 
+            onClick={onClear}
+            className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-red-500/10 transition-colors"
+          >
+            <X size={16} /> Remove Image
+          </button>
+        </>
+      ) : (
+        <label 
+          className="cursor-pointer w-full h-64 flex flex-col items-center justify-center border-2 border-dashed rounded-lg transition-all group relative z-10"
+          style={{ borderColor: isDragging ? '#3b82f6' : '#475569' }}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div className={`p-4 rounded-full mb-4 transition-transform ${isDragging ? 'scale-110 bg-blue-500/20' : 'bg-slate-700 group-hover:scale-110'}`}>
+            <Upload size={32} className={isDragging ? 'text-blue-300' : 'text-blue-400'} />
+          </div>
+          <h3 className="text-lg font-medium text-slate-200 mb-1">
+            {isDragging ? 'Drop it!' : `Upload ${side}`}
+          </h3>
+          <p className="text-slate-400 text-sm max-w-xs">
+            {isDragging ? 'Release to upload' : 'Click to browse or drop file here'}
+          </p>
+          <input 
+            type="file" 
+            accept="image/*" 
+            onChange={onFileSelect} 
+            className="hidden" 
+          />
+        </label>
+      )}
+    </div>
+  );
+};
+
+export default App;
